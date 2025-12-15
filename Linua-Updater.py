@@ -25,6 +25,9 @@ from PyQt6.QtWidgets import (
     QMessageBox, QProgressBar, QButtonGroup
 )
 
+# Import language manager
+from language_manager import LanguageManager
+
 
 # ============================================================
 #                     LOG WRITER
@@ -53,22 +56,23 @@ class SevenZipFinder:
         r"C:\Program Files (x86)\7-Zip\7za.exe",
     ]
 
-    def __init__(self, logger):
+    def __init__(self, logger, lang=None):
         self.logger = logger
+        self.lang = lang
 
     def find(self):
         # 1) check local directory (same folder as EXE)
         local = os.path.join(os.path.dirname(sys.argv[0]), "7z.exe")
         if os.path.exists(local):
             if self.logger:
-                self.logger.write("Using local 7z.exe")
+                self.logger.write(self.lang.get("using_local_7z") if self.lang else "Using local 7z.exe")
             return local
 
         # 2) check system locations
         for p in self.POSSIBLE_LOCATIONS:
             if os.path.exists(p):
                 if self.logger:
-                    self.logger.write(f"Found 7zip at: {p}")
+                    self.logger.write(self.lang.get("found_7zip", path=p) if self.lang else f"Found 7zip at: {p}")
                 return p
 
         # 3) check via PATH
@@ -77,14 +81,14 @@ class SevenZipFinder:
             if result.returncode == 0:
                 path = result.stdout.strip().split('\n')[0]
                 if self.logger:
-                    self.logger.write(f"Found 7zip via PATH: {path}")
+                    self.logger.write(self.lang.get("found_7zip_via_path", path=path) if self.lang else f"Found 7zip via PATH: {path}")
                 return path
         except:
             pass
 
         # 4) 7zip not found
         if self.logger:
-            self.logger.write("7z.exe not found. Multipart DLC will not extract.")
+            self.logger.write(self.lang.get("7zip_not_found") if self.lang else "7z.exe not found. Multipart DLC will not extract.")
         return None
 
 
@@ -97,8 +101,9 @@ class DownloadEngine:
     Stable downloader - direct downloads only
     """
 
-    def __init__(self, logger):
+    def __init__(self, logger, lang=None):
         self.logger = logger
+        self.lang = lang
 
     def log(self, text):
         if self.logger:
@@ -109,30 +114,30 @@ class DownloadEngine:
         try:
             # Показываем название DLC вместо ссылки
             display_text = dlc_name if dlc_name else url
-            self.log(f"Downloading: {display_text}")
+            self.log(self.lang.get("downloading", name=display_text) if self.lang else f"Downloading: {display_text}")
 
             # Для ВСЕХ ссылок используем прямой download
             return self.download_direct(url, out_path)
 
         except Exception as e:
-            return False, f"Download error: {str(e)}"
+            return False, self.lang.get("download_error", error=str(e)) if self.lang else f"Download error: {str(e)}"
 
     def download_direct(self, url, out_path):
         """Прямое скачивание с улучшенной проверкой безопасности"""
         try:
             with requests.get(url, stream=True, timeout=30) as r:
                 if r.status_code != 200:
-                    return False, f"HTTP {r.status_code}"
+                    return False, self.lang.get("http_error", code=r.status_code) if self.lang else f"HTTP {r.status_code}"
                 
                 # Проверка content-type для безопасности
                 content_type = r.headers.get('content-type', '')
                 if 'application/zip' not in content_type and 'application/octet-stream' not in content_type:
-                    return False, f"Invalid content type: {content_type}"
+                    return False, self.lang.get("invalid_content_type", type=content_type) if self.lang else f"Invalid content type: {content_type}"
 
                 total = int(r.headers.get("content-length", 0))
                 # УВЕЛИЧИЛИ ЛИМИТ ДО 10GB ДЛЯ КРУПНЫХ DLC
                 if total > 10 * 1024 * 1024 * 1024:  # 10GB
-                    return False, "File too large (max 10GB)"
+                    return False, self.lang.get("file_too_large") if self.lang else "File too large (max 10GB)"
 
                 downloaded = 0
                 with open(out_path, "wb") as f:
@@ -143,23 +148,24 @@ class DownloadEngine:
 
                 # Проверить что файл не пустой
                 if downloaded == 0:
-                    return False, "Empty file downloaded"
+                    return False, self.lang.get("empty_file") if self.lang else "Empty file downloaded"
 
                 if total > 0 and downloaded < total * 0.90:
-                    return False, f"File incomplete ({downloaded}/{total})"
+                    return False, self.lang.get("file_incomplete", downloaded=downloaded, total=total) if self.lang else f"File incomplete ({downloaded}/{total})"
 
                 return True, "OK"
 
         except Exception as e:
-            return False, f"Direct download error: {str(e)}"
+            return False, self.lang.get("direct_download_error", error=str(e)) if self.lang else f"Direct download error: {str(e)}"
 
 # ============================================================
 #                     ZIP / 7Z SAFE EXTRACTOR
 # ============================================================
 
 class Extractor:
-    def __init__(self, logger):
+    def __init__(self, logger, lang=None):
         self.logger = logger
+        self.lang = lang
 
     def log(self, text):
         if self.logger:
@@ -172,7 +178,7 @@ class Extractor:
                 z.extractall(out_dir)
             return True, "OK"
         except Exception as e:
-            return False, f"ZIP extraction error: {str(e)}"
+            return False, self.lang.get("zip_extraction_error", error=str(e)) if self.lang else f"ZIP extraction error: {str(e)}"
 
     def extract_7z(self, seven, archive_path, out_dir):
         """Распаковать 7z архив"""
@@ -188,11 +194,11 @@ class Extractor:
             return True, "OK"
 
         except subprocess.CalledProcessError as e:
-            return False, f"7z error: {e.stderr}"
+            return False, self.lang.get("7z_error", error=e.stderr) if self.lang else f"7z error: {e.stderr}"
         except subprocess.TimeoutExpired:
-            return False, "7z extraction timeout"
+            return False, self.lang.get("7z_extraction_timeout") if self.lang else "7z extraction timeout"
         except Exception as e:
-            return False, f"7z error: {str(e)}"
+            return False, self.lang.get("7z_error", error=str(e)) if self.lang else f"7z error: {str(e)}"
 
 
 # ============================================================
@@ -202,13 +208,14 @@ class Extractor:
 class SingleDLCInstaller:
     """Установка одиночных DLC"""
 
-    def __init__(self, dlc_id, info, game_path, downloader, extractor, logger):
+    def __init__(self, dlc_id, info, game_path, downloader, extractor, logger, lang=None):
         self.dlc = dlc_id
         self.info = info
         self.game = game_path
         self.dl = downloader
         self.ex = extractor
         self.logger = logger
+        self.lang = lang
 
     def log(self, t):
         if self.logger:
@@ -218,18 +225,18 @@ class SingleDLCInstaller:
         try:
             url = self.info.get("url")
             if not url:
-                return False, "URL missing"
+                return False, self.lang.get("url_missing") if self.lang else "URL missing"
 
             temp = os.path.join(tempfile.gettempdir(), f"{self.dlc}.zip")
 
-            self.log("Downloading...")
+            self.log(self.lang.get("downloading") if self.lang else "Downloading...")
             # Передаем название DLC для красивого логирования
-            dlc_name = f"{self.dlc} - {self.info.get('name', 'Unknown DLC')}"
+            dlc_name = f"{self.dlc} - {self.info.get('name', self.lang.get('unknown_dlc') if self.lang else 'Unknown DLC')}"
             ok, reason = self.dl.download(url, temp, dlc_name)
             if not ok:
                 return False, reason
 
-            self.log("Extracting...")
+            self.log(self.lang.get("extracting") if self.lang else "Extracting...")
             ok, reason = self.ex.extract_zip(temp, self.game)
             if not ok:
                 return False, reason
@@ -240,11 +247,11 @@ class SingleDLCInstaller:
             except:
                 pass
 
-            self.log("Installation completed successfully")
+            self.log(self.lang.get("installation_completed") if self.lang else "Installation completed successfully")
             return True, "OK"
 
         except Exception as e:
-            return False, f"Installation error: {str(e)}"
+            return False, self.lang.get("installation_error", error=str(e)) if self.lang else f"Installation error: {str(e)}"
 
 
 # ============================================================
@@ -254,7 +261,7 @@ class SingleDLCInstaller:
 class MultiPartInstaller:
     """Установка многодольных DLC"""
 
-    def __init__(self, dlc_id, info, game_path, downloader, extractor, seven_path, logger):
+    def __init__(self, dlc_id, info, game_path, downloader, extractor, seven_path, logger, lang=None):
         self.dlc = dlc_id
         self.info = info
         self.game = game_path
@@ -262,6 +269,7 @@ class MultiPartInstaller:
         self.ex = extractor
         self.seven = seven_path
         self.logger = logger
+        self.lang = lang
 
     def log(self, t):
         if self.logger:
@@ -270,11 +278,11 @@ class MultiPartInstaller:
     def run(self):
         try:
             if not self.seven:
-                return False, "7z.exe not found"
+                return False, self.lang.get("7z_not_found") if self.lang else "7z.exe not found"
 
             parts = self.info.get("parts", [])
             if not parts:
-                return False, "No parts defined"
+                return False, self.lang.get("no_parts_defined") if self.lang else "No parts defined"
 
             downloaded = []
 
@@ -283,9 +291,9 @@ class MultiPartInstaller:
                 name = f"{self.dlc}.7z.{str(i+1).zfill(3)}"
                 out = os.path.join(tempfile.gettempdir(), name)
 
-                self.log(f"Downloading part {i+1}/{len(parts)}...")
+                self.log(self.lang.get("downloading_part", current=i+1, total=len(parts)) if self.lang else f"Downloading part {i+1}/{len(parts)}...")
                 # Передаем название DLC для красивого логирования
-                dlc_name = f"{self.dlc} - {self.info.get('name', 'Unknown DLC')} [Part {i+1}]"
+                dlc_name = f"{self.dlc} - {self.info.get('name', self.lang.get('unknown_dlc') if self.lang else 'Unknown DLC')} [Part {i+1}]"
                 ok, reason = self.dl.download(url, out, dlc_name)
                 if not ok:
                     return False, reason
@@ -294,7 +302,7 @@ class MultiPartInstaller:
 
             # Extract via 7-Zip
             part1 = downloaded[0]
-            self.log("Extracting multipart archive...")
+            self.log(self.lang.get("extracting_multipart") if self.lang else "Extracting multipart archive...")
 
             ok, reason = self.ex.extract_7z(self.seven, part1, self.game)
             if not ok:
@@ -307,11 +315,11 @@ class MultiPartInstaller:
                 except:
                     pass
 
-            self.log("Installation completed successfully")
+            self.log(self.lang.get("installation_completed") if self.lang else "Installation completed successfully")
             return True, "OK"
 
         except Exception as e:
-            return False, f"Multipart installation error: {str(e)}"
+            return False, self.lang.get("multipart_installation_error", error=str(e)) if self.lang else f"Multipart installation error: {str(e)}"
 
 
 # ============================================================
@@ -322,7 +330,7 @@ class ZipInstallThread(QThread):
     log = pyqtSignal(str)
     done = pyqtSignal(str, bool, str)
 
-    def __init__(self, dlc_id, info, game_path, downloader, extractor, logger):
+    def __init__(self, dlc_id, info, game_path, downloader, extractor, logger, lang=None):
         super().__init__()
         self.dlc = dlc_id
         self.info = info
@@ -330,11 +338,12 @@ class ZipInstallThread(QThread):
         self.downloader = downloader
         self.extractor = extractor
         self.logger = logger
+        self.lang = lang
 
     def run(self):
         inst = SingleDLCInstaller(
             self.dlc, self.info, self.game,
-            self.downloader, self.extractor, self.logger
+            self.downloader, self.extractor, self.logger, self.lang
         )
         success, reason = inst.run()
         self.done.emit(self.dlc, success, reason)
@@ -344,7 +353,7 @@ class MultiPartInstallThread(QThread):
     log = pyqtSignal(str)
     done = pyqtSignal(str, bool, str)
 
-    def __init__(self, dlc_id, info, game_path, downloader, extractor, logger):
+    def __init__(self, dlc_id, info, game_path, downloader, extractor, logger, lang=None):
         super().__init__()
         self.dlc = dlc_id
         self.info = info
@@ -352,21 +361,23 @@ class MultiPartInstallThread(QThread):
         self.downloader = downloader
         self.extractor = extractor
         self.logger = logger
+        self.lang = lang
 
     def run(self):
         # Find 7z when thread starts
-        seven_finder = SevenZipFinder(self.logger)
+        seven_finder = SevenZipFinder(self.logger, self.lang)
         seven_path = seven_finder.find()
         
         if not seven_path:
-            self.log.emit(f"[{self.dlc}] ERROR: 7-zip not found")
-            self.done.emit(self.dlc, False, "7-zip not found")
+            error_msg = self.lang.get("7z_not_found") if self.lang else "7-zip not found"
+            self.log.emit(f"[{self.dlc}] ERROR: {error_msg}")
+            self.done.emit(self.dlc, False, error_msg)
             return
 
         inst = MultiPartInstaller(
             self.dlc, self.info, self.game,
             self.downloader, self.extractor,
-            seven_path, self.logger
+            seven_path, self.logger, self.lang
         )
         success, reason = inst.run()
         self.done.emit(self.dlc, success, reason)
@@ -379,9 +390,10 @@ class MultiPartInstallThread(QThread):
 class RepairEngine:
     """Система восстановления папки Sims 4"""
 
-    def __init__(self, game_path, logger):
+    def __init__(self, game_path, logger, lang=None):
         self.game = Path(game_path)
         self.logger = logger
+        self.lang = lang
 
     def log(self, msg):
         if self.logger:
@@ -390,50 +402,50 @@ class RepairEngine:
     def run(self):
         try:
             if not self.game.exists():
-                self.log("Invalid game path")
+                self.log(self.lang.get("invalid_game_path") if self.lang else "Invalid game path")
                 return False
 
-            self.log("Starting deep repair...")
+            self.log(self.lang.get("starting_repair") if self.lang else "Starting deep repair...")
 
             self.check_structure()
             self.check_executables()
             self.clean_empty_dlc()
             self.clean_temp_files()
 
-            self.log("Repair completed successfully")
+            self.log(self.lang.get("repair_completed") if self.lang else "Repair completed successfully")
             return True
 
         except Exception as e:
-            self.log(f"Repair failed: {e}")
+            self.log(self.lang.get("repair_failed", error=str(e)) if self.lang else f"Repair failed: {e}")
             return False
 
     def check_structure(self):
-        self.log("Checking game structure...")
+        self.log(self.lang.get("checking_structure") if self.lang else "Checking game structure...")
         required = ["Game", "Data", "Delta"]
         for f in required:
             if not (self.game / f).exists():
-                self.log(f"Missing folder: {f}")
+                self.log(self.lang.get("missing_folder", folder=f) if self.lang else f"Missing folder: {f}")
 
     def check_executables(self):
-        self.log("Checking executables...")
+        self.log(self.lang.get("checking_executables") if self.lang else "Checking executables...")
         exe = self.game / "Game" / "Bin" / "TS4_x64.exe"
         if not exe.exists():
-            self.log("TS4_x64.exe missing - game may not run")
+            self.log(self.lang.get("exe_missing") if self.lang else "TS4_x64.exe missing - game may not run")
 
     def clean_empty_dlc(self):
-        self.log("Cleaning empty DLC folders...")
+        self.log(self.lang.get("cleaning_empty_dlc") if self.lang else "Cleaning empty DLC folders...")
         for item in self.game.iterdir():
             name = item.name.upper()
             if name.startswith(("EP", "GP", "SP", "FP")) and item.is_dir():
                 if not any(item.iterdir()):
-                    self.log(f"Removing empty folder: {name}")
+                    self.log(self.lang.get("removing_empty_folder", folder=name) if self.lang else f"Removing empty folder: {name}")
                     try:
                         shutil.rmtree(item, ignore_errors=True)
                     except:
                         pass
 
     def clean_temp_files(self):
-        self.log("Cleaning temp files...")
+        self.log(self.lang.get("cleaning_temp_files") if self.lang else "Cleaning temp files...")
         temp = Path(tempfile.gettempdir())
         patterns = [".7z.001", ".7z.002", ".zip", ".tmp"]
         
@@ -452,13 +464,14 @@ class RepairEngine:
 class RepairThread(QThread):
     done = pyqtSignal(bool)
 
-    def __init__(self, game_path, logger):
+    def __init__(self, game_path, logger, lang=None):
         super().__init__()
         self.game_path = game_path
         self.logger = logger
+        self.lang = lang
 
     def run(self):
-        engine = RepairEngine(self.game_path, self.logger)
+        engine = RepairEngine(self.game_path, self.logger, self.lang)
         ok = engine.run()
         self.done.emit(ok)
 
@@ -473,10 +486,11 @@ class AutoUpdateChecker:
     def __init__(self, logger, parent):
         self.logger = logger
         self.parent = parent
+        self.lang = parent.lang  # Get parent window's language manager
 
     def check(self):
         try:
-            self.logger.write("Checking for updates...")
+            self.logger.write(self.lang.get("checking_for_updates"))
             r = requests.get(self.RAW_URL, timeout=5)
             if r.status_code == 200:
                 latest = r.text.strip()
@@ -488,9 +502,9 @@ class AutoUpdateChecker:
 
     def notify(self, latest):
         dlg = QMessageBox(self.parent)
-        dlg.setWindowTitle("Update Available")
-        dlg.setText(f"New version {latest} is available.")
-        dlg.setInformativeText("Open GitHub?")
+        dlg.setWindowTitle(self.lang.get("update_available_title"))
+        dlg.setText(self.lang.get("update_available_text", version=latest))
+        dlg.setInformativeText(self.lang.get("update_available_question"))
         dlg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if dlg.exec() == QMessageBox.StandardButton.Yes:
             webbrowser.open("https://github.com/l1ntol/Linua-Updater")
@@ -501,17 +515,19 @@ class AutoUpdateChecker:
 # ============================================================
 
 class AppController:
-    def __init__(self, logger):
+    def __init__(self, logger, lang=None):
         self.logger = logger
-        self.downloader = DownloadEngine(logger)
-        self.extractor = Extractor(logger)
+        self.lang = lang
+        self.downloader = DownloadEngine(logger, lang)
+        self.extractor = Extractor(logger, lang)
 
     def install_zip(self, dlc_id, dlc_info, game_path, finished_callback):
         worker = ZipInstallThread(
             dlc_id, dlc_info, game_path,
             self.downloader,
             self.extractor,
-            self.logger
+            self.logger,
+            self.lang
         )
         worker.log.connect(self.logger.write)
         worker.done.connect(finished_callback)
@@ -523,7 +539,8 @@ class AppController:
             dlc_id, dlc_info, game_path,
             self.downloader,
             self.extractor,
-            self.logger
+            self.logger,
+            self.lang
         )
         worker.log.connect(self.logger.write)
         worker.done.connect(finished_callback)
@@ -531,7 +548,7 @@ class AppController:
         return worker
 
     def run_repair(self, game_path, finished_callback):
-        repair = RepairThread(game_path, self.logger)
+        repair = RepairThread(game_path, self.logger, self.lang)
         repair.done.connect(finished_callback)
         repair.start()
         return repair
@@ -544,7 +561,11 @@ class AppController:
 class LinuaUpdater(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Linua Updater v2.0") 
+        
+        # Initialize language manager
+        self.lang = LanguageManager()
+        
+        self.setWindowTitle(self.lang.get("window_title")) 
         self.setFixedSize(620, 520)
 
         self.logger = None
@@ -574,19 +595,19 @@ class LinuaUpdater(QMainWindow):
         layout = QVBoxLayout(central)
 
         # title
-        title = QLabel("Linua Updater v2.0")
+        title = QLabel(self.lang.get("title"))
         title.setStyleSheet("font-weight: bold; font-size: 14px; padding: 4px; color: white;")
         layout.addWidget(title)
 
         # path select
-        path_label = QLabel("Select your The Sims 4 folder:")
+        path_label = QLabel(self.lang.get("path_label"))
         path_label.setStyleSheet("color: white;")
         layout.addWidget(path_label)
 
         row = QHBoxLayout()
         self.path_input = QLineEdit()
-        self.path_input.setPlaceholderText("C:\\Program Files (x86)\\Steam\\steamapps\\common\\The Sims 4")
-        browse = QPushButton("Browse...")
+        self.path_input.setPlaceholderText(self.lang.get("path_placeholder"))
+        browse = QPushButton(self.lang.get("browse_button"))
         browse.clicked.connect(self.browse_folder)
 
         row.addWidget(self.path_input)
@@ -595,9 +616,9 @@ class LinuaUpdater(QMainWindow):
 
         # update + repair + cancel
         row2 = QHBoxLayout()
-        self.update_btn = QPushButton("Update")
-        self.repair_btn = QPushButton("Repair")
-        self.cancel_btn = QPushButton("Cancel")
+        self.update_btn = QPushButton(self.lang.get("update_button"))
+        self.repair_btn = QPushButton(self.lang.get("repair_button"))
+        self.cancel_btn = QPushButton(self.lang.get("cancel_button"))
         self.cancel_btn.clicked.connect(self.cancel_installation)
         self.cancel_btn.setVisible(False)
 
@@ -621,12 +642,7 @@ class LinuaUpdater(QMainWindow):
         layout.addWidget(self.log_text)
 
         # info
-        info = QLabel(
-            "The only legitimate sources of this program are listed in the readme.\n"
-            "This program is free — if you paid for it, you were scammed.\n\n"
-            "Select your Sims 4 folder, then press Update.\n"
-            "Repair checks core game files."
-        )
+        info = QLabel(self.lang.get("info_text"))
         info.setWordWrap(True)
         info.setStyleSheet("background-color: #2a2a2a; padding: 10px; border-radius: 6px; color: white;")
         layout.addWidget(info)
@@ -666,7 +682,7 @@ class LinuaUpdater(QMainWindow):
 
     def browse_folder(self):
         """Открыть диалог выбора папки"""
-        self.log_message("Opening folder browser...")
+        self.log_message(self.lang.get("opening_folder_browser"))
         folder = QFileDialog.getExistingDirectory(
             self, 
             "Select The Sims 4 Folder",
@@ -674,11 +690,22 @@ class LinuaUpdater(QMainWindow):
         )
         if folder:
             self.path_input.setText(folder)
-            self.log_message("Folder selected")
+            self.log_message(self.lang.get("folder_selected"))
 
     def log_message(self, message, level="INFO"):
         """Улучшенное логирование с уровнями"""
         timestamp = datetime.now().strftime("[%H:%M:%S]")
+        
+        # Get localized level text
+        level_key_map = {
+            "INFO": "log_info",
+            "WARNING": "log_warning", 
+            "ERROR": "log_error",
+            "SUCCESS": "log_success"
+        }
+        level_key = level_key_map.get(level, "log_info")
+        localized_level = self.lang.get(level_key) if self.lang else level
+        
         level_color = {
             "INFO": "white",
             "WARNING": "yellow", 
@@ -687,11 +714,11 @@ class LinuaUpdater(QMainWindow):
         }
         color = level_color.get(level, "white")
         
-        self.log_text.append(f'<font color="{color}">{timestamp} [{level}] {message}</font>')
+        self.log_text.append(f'<font color="{color}">{timestamp} [{localized_level}] {message}</font>')
 
     def auto_detect(self):
         """Автоматическое обнаружение игры"""
-        self.log_message("Detecting The Sims 4...")
+        self.log_message(self.lang.get("detecting_sims4"))
 
         drives = ["C", "D", "E", "F", "G", "H"]
         paths = [
@@ -709,15 +736,15 @@ class LinuaUpdater(QMainWindow):
                 full_path = f"{drive}:{path}"
                 if os.path.exists(full_path):
                     self.path_input.setText(full_path)
-                    self.log_message(f"Found game: {full_path}")
+                    self.log_message(self.lang.get("found_game", path=full_path))
                     return
 
-        self.log_message("Game not found automatically")
+        self.log_message(self.lang.get("game_not_found"))
 
     def validate_game_path(self, path):
         """Проверка что путь действительно ведет к The Sims 4"""
         if not path or not os.path.exists(path):
-            return False, "Path does not exist"
+            return False, self.lang.get("path_does_not_exist") if self.lang else "Path does not exist"
         
         path_obj = Path(path)
         
@@ -725,7 +752,7 @@ class LinuaUpdater(QMainWindow):
         required_folders = ["Game", "Data"]
         for folder in required_folders:
             if not (path_obj / folder).exists():
-                return False, f"Missing required folder: {folder}"
+                return False, self.lang.get("missing_required_folder", folder=folder) if self.lang else f"Missing required folder: {folder}"
         
         # Проверка ключевых исполняемых файлов
         possible_executables = [
@@ -733,12 +760,11 @@ class LinuaUpdater(QMainWindow):
             "Game/Bin/TS4.exe",
             "Game/Bin/TS4_x86.exe"
         ]
-        
         exe_found = any((path_obj / exe).exists() for exe in possible_executables)
         if not exe_found:
-            return False, "No Sims 4 executable found"
+            return False, self.lang.get("no_sims4_executable") if self.lang else "No Sims 4 executable found"
         
-        return True, "Valid Sims 4 folder"
+        return True, self.lang.get("valid_sims4_folder") if self.lang else "Valid Sims 4 folder"
 
     def check_disk_space(self, path, required_gb=10):
         """Проверка свободного места на диске"""
@@ -747,7 +773,7 @@ class LinuaUpdater(QMainWindow):
             free_gb = free // (2**30)  # Конвертируем в GB
             return free_gb >= required_gb, free_gb
         except Exception as e:
-            self.log_message(f"Could not check disk space: {e}")
+            self.log_message(self.lang.get("could_not_check_disk_space", error=str(e)))
             return True, 0  # Если проверка не удалась, продолжаем
 
     def load_dlc_database(self):
@@ -884,16 +910,16 @@ class LinuaUpdater(QMainWindow):
             
             # Валидация пути
             if not path:
-                self.log_message("Please select a game folder first.")
+                self.log_message(self.lang.get("please_select_game_folder"))
                 return
             
             is_valid, message = self.validate_game_path(path)
             if not is_valid:
-                self.log_message(f"Invalid game folder: {message}")
+                self.log_message(f"{self.lang.get('invalid_game_folder')}: {message}")
                 reply = QMessageBox.question(
                     self, 
-                    "Confirm Folder", 
-                    f"The selected folder may not be a valid Sims 4 installation.\n\nReason: {message}\n\nContinue anyway?",
+                    self.lang.get("confirm_folder"), 
+                    f"{self.lang.get('invalid_sims_folder')}\n\n{self.lang.get('reason')}: {message}\n\n{self.lang.get('continue_anyway')}",
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.No
                 )
@@ -903,15 +929,15 @@ class LinuaUpdater(QMainWindow):
             # Проверка свободного места
             has_space, free_gb = self.check_disk_space(path)
             if not has_space:
-                self.log_message(f"ERROR: Not enough disk space. Only {free_gb}GB free, need at least 10GB")
+                self.log_message(f"ERROR: {self.lang.get('not_enough_disk_space', free_gb=free_gb)}")
                 QMessageBox.critical(
                     self,
-                    "Low Disk Space",
-                    f"Only {free_gb}GB free space available.\nNeed at least 10GB for installation.\nPlease free up some space and try again."
+                    self.lang.get("low_disk_space_title"),
+                    self.lang.get("low_disk_space_text", free_gb=free_gb)
                 )
                 return
             elif free_gb < 20:  # Предупреждение если мало места
-                self.log_message(f"Warning: Only {free_gb}GB free space available")
+                self.log_message(f"Warning: {self.lang.get('warning_disk_space', free_gb=free_gb)}")
             
             installed = self.detect_installed(path)
             
@@ -920,42 +946,42 @@ class LinuaUpdater(QMainWindow):
             
             result = dlg.exec()
             if result != QDialog.DialogCode.Accepted:
-                self.log_message("DLC selection cancelled.")
+                self.log_message(self.lang.get("dlc_selection_cancelled"))
                 return
                 
             selected = dlg.get()
             if not selected:
-                self.log_message("No DLC selected.")
+                self.log_message(self.lang.get("no_dlc_selected"))
                 return
                 
             self.start_install_process(selected, path)
             
         except Exception as e:
-            self.log_message(f"Error in DLC selection: {str(e)}")
-            QMessageBox.critical(self, "Error", f"Failed to open DLC selector: {str(e)}")
+            self.log_message(f"{self.lang.get('error_dlc_selection')}: {str(e)}")
+            QMessageBox.critical(self, self.lang.get("error"), f"{self.lang.get('failed_open_dlc_selector')}: {str(e)}")
 
     def start_install_process(self, selected, game_path):
         """Запуск процесса установки"""
         if not selected:
-            self.log_message("No DLC selected for installation.")
+            self.log_message(self.lang.get("no_dlc_selected_install"))
             return
             
         # Проверяем наличие 7-zip для многодольных DLC
         multipart_dlc = [dlc for dlc in selected if "parts" in self.dlc_db[dlc]]
         if multipart_dlc:
-            seven_finder = SevenZipFinder(self.logger)
+            seven_finder = SevenZipFinder(self.logger, self.lang)
             seven_path = seven_finder.find()
             if not seven_path:
-                self.log_message("ERROR: 7-zip required for multipart DLC but not found!")
+                self.log_message(self.lang.get("7z_required_not_found"))
                 msg = QMessageBox(self)
-                msg.setWindowTitle("7-zip Required")
-                msg.setText("Multipart DLC (EP03 City Living, EP06 Get Famous) require 7-zip.")
-                msg.setInformativeText("Please install 7-zip from official website and try again.")
+                msg.setWindowTitle(self.lang.get("7z_required_title"))
+                msg.setText(self.lang.get("7z_required_text"))
+                msg.setInformativeText(self.lang.get("7z_required_info"))
                 msg.setStandardButtons(QMessageBox.StandardButton.Ok)
                 msg.exec()
                 return
 
-        self.controller = AppController(self.logger)
+        self.controller = AppController(self.logger, self.lang)
 
         self.progress_total = len(selected)
         self.progress_done = 0
@@ -968,7 +994,7 @@ class LinuaUpdater(QMainWindow):
         self.repair_btn.setEnabled(False)
         self.cancel_btn.setVisible(True)
 
-        self.log_message(f"Installing {len(selected)} DLC...")
+        self.log_message(self.lang.get("installing_dlc", count=len(selected)))
 
         self.active_threads = []
 
@@ -1001,7 +1027,7 @@ class LinuaUpdater(QMainWindow):
         self.update_btn.setEnabled(True)
         self.repair_btn.setEnabled(True)
         self.cancel_btn.setVisible(False)
-        self.log_message("Installation cancelled")
+        self.log_message(self.lang.get("installation_cancelled"))
 
     @pyqtSlot(str, bool, str)
     def install_done(self, dlc_id, success, reason):
@@ -1019,7 +1045,7 @@ class LinuaUpdater(QMainWindow):
 
     def finish_install(self):
         """Завершение процесса установки"""
-        self.log_message("Installation complete.", "SUCCESS")
+        self.log_message(self.lang.get("installation_complete") if self.lang else "Installation complete.", "SUCCESS")
         self.progress_bar.setVisible(False)
 
         self.update_btn.setEnabled(True)
@@ -1027,23 +1053,23 @@ class LinuaUpdater(QMainWindow):
         self.cancel_btn.setVisible(False)
 
         dlg = QMessageBox(self)
-        dlg.setWindowTitle("Done")
-        dlg.setText("All selected DLC were installed.")
+        dlg.setWindowTitle(self.lang.get("done") if self.lang else "Done")
+        dlg.setText(self.lang.get("all_dlc_installed") if self.lang else "All selected DLC were installed.")
         dlg.exec()
 
     def start_repair(self):
         """Обработчик кнопки Repair"""
         path = self.path_input.text().strip()
         if not path or not os.path.isdir(path):
-            self.log_message("Invalid game folder.")
+            self.log_message(self.lang.get("invalid_game_folder_repair"))
             return
 
-        self.log_message("Starting repair...")
+        self.log_message(self.lang.get("starting_repair_process"))
 
         self.progress_bar.setVisible(True)
         self.progress_bar.setMaximum(0)
 
-        self.controller = AppController(self.logger)
+        self.controller = AppController(self.logger, self.lang)
         self.repair_thread = self.controller.run_repair(
             path,
             self.repair_done
@@ -1055,13 +1081,13 @@ class LinuaUpdater(QMainWindow):
         self.progress_bar.setVisible(False)
 
         if ok:
-            self.log_message("Repair finished.", "SUCCESS")
+            self.log_message(self.lang.get("repair_finished"), "SUCCESS")
         else:
-            self.log_message("Repair failed.", "ERROR")
+            self.log_message(self.lang.get("repair_failed_text"), "ERROR")
 
         dlg = QMessageBox(self)
-        dlg.setWindowTitle("Repair complete")
-        dlg.setText("Repair process finished.")
+        dlg.setWindowTitle(self.lang.get("repair_complete_title"))
+        dlg.setText(self.lang.get("repair_complete_text"))
         dlg.exec()
 
 
@@ -1072,7 +1098,8 @@ class LinuaUpdater(QMainWindow):
 class DLCSelector(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Select DLC")
+        self.lang = parent.lang  # 获取父窗口的语言管理器
+        self.setWindowTitle(self.lang.get("dlc_selector_title"))
         self.setFixedSize(540, 640)
         self.setStyleSheet("""
             QDialog {
@@ -1127,12 +1154,12 @@ class DLCSelector(QDialog):
 
         layout = QVBoxLayout(self)
 
-        self.info = QLabel("Select DLC you want to install.\nAlready installed DLC are hidden.")
+        self.info = QLabel(self.lang.get("select_dlc_install") if self.lang else "Select DLC you want to install.\nAlready installed DLC are hidden.")
         self.info.setWordWrap(True)
         self.info.setStyleSheet("color: white; padding: 10px; background-color: #2a2a2a; border-radius: 4px;")
         layout.addWidget(self.info)
 
-        self.check_all = QCheckBox("Select all")
+        self.check_all = QCheckBox(self.lang.get("select_all") if self.lang else "Select all")
         self.check_all.setStyleSheet("color: white; font-weight: bold; padding: 10px;")
         self.check_all.stateChanged.connect(self.toggle_all)
         layout.addWidget(self.check_all)
@@ -1149,8 +1176,8 @@ class DLCSelector(QDialog):
         scroll.setWidget(self.container)
 
         bottom = QHBoxLayout()
-        ok = QPushButton("OK")
-        cancel = QPushButton("Cancel")
+        ok = QPushButton(self.lang.get("ok") if self.lang else "OK")
+        cancel = QPushButton(self.lang.get("cancel") if self.lang else "Cancel")
         ok.clicked.connect(self.accept)
         cancel.clicked.connect(self.reject)
         bottom.addWidget(ok)
@@ -1181,7 +1208,7 @@ class DLCSelector(QDialog):
 
         # Если все DLC уже установлены
         if not available_dlc:
-            no_dlc_label = QLabel("All DLC are already installed.")
+            no_dlc_label = QLabel(self.lang.get("all_dlc_installed"))
             no_dlc_label.setStyleSheet("color: white; padding: 20px; text-align: center; font-size: 12px;")
             no_dlc_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.layout_c.addWidget(no_dlc_label)
@@ -1192,21 +1219,21 @@ class DLCSelector(QDialog):
         self.check_all.setVisible(True)
         
         categories = {
-            "Expansion Packs": [],
-            "Game Packs": [],
-            "Stuff Packs": [],
-            "Free Packs": []
+            self.lang.get("expansion_packs"): [],
+            self.lang.get("game_packs"): [],
+            self.lang.get("stuff_packs"): [],
+            self.lang.get("free_packs"): []
         }
 
         for dlc_id, info in available_dlc:
             if dlc_id.startswith("EP"):
-                categories["Expansion Packs"].append((dlc_id, info))
+                categories[self.lang.get("expansion_packs")].append((dlc_id, info))
             elif dlc_id.startswith("GP"):
-                categories["Game Packs"].append((dlc_id, info))
+                categories[self.lang.get("game_packs")].append((dlc_id, info))
             elif dlc_id.startswith("FP"):
-                categories["Free Packs"].append((dlc_id, info))
+                categories[self.lang.get("free_packs")].append((dlc_id, info))
             else:
-                categories["Stuff Packs"].append((dlc_id, info))
+                categories[self.lang.get("stuff_packs")].append((dlc_id, info))
 
         # add items
         for cat, items in categories.items():
